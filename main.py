@@ -1,5 +1,5 @@
 import os
-from time import sleep
+import random
 from pynput import keyboard
 
 TICKRATE = 24
@@ -73,25 +73,52 @@ class Game:
         self.starting_rotation = 0
         self.rotation_index = 0
         self.piece_index = 0
+        self.points = 0
     
     def increment(self):
         if self.tick % self.drop_rate == 0:
-            self.move_piece('v')
+            self.move_piece('down')
         
         self.tick += 1
         self.tick %= TICKRATE
 
     def move_piece(self, direction: str):
-        board = self.board
         row, col = self.coordinates
-        row_mod, col_mod = DIRECTIONS[direction]
 
-        if row+row_mod >= HEIGHT or col+col_mod < 0 or col+col_mod >= WIDTH: return
-        board[row][col*2] = ' '
-        board[row][col*2+1] = ' '
-        board[row+row_mod][(col+col_mod)*2] = '['
-        board[row+row_mod][(col+col_mod)*2+1] = ']'
-        self.coordinates = (row+row_mod, col+col_mod)
+        for row_mod, col_mod in PIECES[self.piece_index][self.rotation_index]:
+            self.board[row+row_mod][(col+col_mod)*2] = ' '
+            self.board[row+row_mod][(col+col_mod)*2+1] = ' '
+
+        row_dir, col_dir = DIRECTIONS[direction]
+        row += row_dir
+        col += col_dir
+        
+        for row_mod, col_mod in PIECES[self.piece_index][self.rotation_index]:
+            if (row+row_mod >= HEIGHT
+                or col+col_mod < 0
+                or col+col_mod >= WIDTH
+                or self.board[row+row_mod][(col+col_mod)*2] != ' '):
+
+                row -= row_dir
+                col -= col_dir
+                for row_mod, col_mod in PIECES[self.piece_index][self.rotation_index]:
+                    self.board[row+row_mod][(col+col_mod)*2] = '['
+                    self.board[row+row_mod][(col+col_mod)*2+1] = ']'
+                
+                if direction == 'down':
+                    self.remove_lines()
+                    self.add_piece()
+                return
+        
+        for row_mod, col_mod in PIECES[self.piece_index][self.rotation_index]:
+            self.board[row+row_mod][(col+col_mod)*2] = ' '
+            self.board[row+row_mod][(col+col_mod)*2+1] = ' '
+
+        for row_mod, col_mod in PIECES[self.piece_index][self.rotation_index]:
+            self.board[row+row_mod][(col+col_mod)*2] = '['
+            self.board[row+row_mod][(col+col_mod)*2+1] = ']'
+        
+        self.coordinates = (row, col)
 
     def rotate_piece(self):
         row, col = self.coordinates
@@ -101,16 +128,32 @@ class Game:
             self.board[row+row_mod][(col+col_mod)*2+1] = ' '
 
         rotations = len(PIECES[self.piece_index])
-        self.rotation_index = (self.rotation_index+1) % rotations
+        new_rotation = (self.rotation_index+1) % rotations
 
-        for row_mod, col_mod in PIECES[self.piece_index][self.rotation_index]:
+        for row_mod, col_mod in PIECES[self.piece_index][new_rotation]:
+            if (row+row_mod >= HEIGHT
+                or col+col_mod < 0
+                or col+col_mod >= WIDTH
+                or self.board[row+row_mod][(col+col_mod)*2] != ' '):
+                
+                for row_mod, col_mod in PIECES[self.piece_index][self.rotation_index]:
+                    self.board[row+row_mod][(col+col_mod)*2] = '['
+                    self.board[row+row_mod][(col+col_mod)*2+1] = ']'
+                return
+
+        for row_mod, col_mod in PIECES[self.piece_index][new_rotation]:
             self.board[row+row_mod][(col+col_mod)*2] = '['
             self.board[row+row_mod][(col+col_mod)*2+1] = ']'
+        
+        self.rotation_index = new_rotation
     
-    def add_piece(self, piece_index):
+    def add_piece(self):
+        piece_index = random.randint(0, 6)
+
         self.piece_index = piece_index
         self.coordinates = self.starting_coordinates
         row, col = self.coordinates
+        self.rotation_index = self.starting_rotation
 
         for row_mod, col_mod in PIECES[self.piece_index][self.rotation_index]:
             self.board[row+row_mod][(col+col_mod)*2] = '['
@@ -133,39 +176,35 @@ class Game:
             self.rotate_piece()
     
     def render(self):
-        for i in range(0, len(self.board)):
+        for i in range(2, len(self.board)):
             row = self.board[i]
             print('<', end='')
             for cell in row:
                 print(cell, end='')
             print('>')
-        print(' ' + 'v' * len(self.board[0]) + ' ' + 'tick: ' + str(self.tick))
+        print(' ' + 'v' * len(self.board[0]) + ' ' + 'points: ' + str(self.points))
 
-def show_pieces():
-    for i in range(7):
-        game = Game()
-        game.add_piece(i)
-        os.system('clear')
-        game.render()
-        sleep(1/2)
-        for _ in range(4):
-            game.rotate_piece()
-            os.system('clear')
-            game.render()
-            sleep(1/2)
+    def remove_lines(self):
+        points = 10
+        for row in range(HEIGHT):
+            if ' ' not in self.board[row]:
+                points *= 2
+                self.board = [[' '] * WIDTH*2] + self.board[:row] + self.board[row+1:]
+        self.points += points
 
 def main():
-    show_pieces()
+    game = Game()
+    game.add_piece()
 
-    # while True:
-    #     with keyboard.Listener(game.on_press) as listener:
-    #         listener.join(1/FRAMERATE)
+    while True:
+        with keyboard.Listener(game.on_press) as listener:
+            listener.join(1/TICKRATE)
         
-    #     game.increment()
-    #     os.system('clear')
-    #     game.print_board()
+        game.increment()
+        os.system('clear')
+        game.render()
 
-    #     if game.over:
-    #         break
+        if game.over:
+            break
 
 main()
