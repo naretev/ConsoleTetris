@@ -5,6 +5,8 @@ from pynput import keyboard
 TICKRATE = 24
 WIDTH = 10
 HEIGHT = 22
+SPAWN_COORDINATES = (2, 5)
+SPAWN_ROTATION_INDEX = 0
 
 DIRECTIONS = {
     'left': (0, -1),
@@ -62,25 +64,31 @@ PIECES = [
     LINE_PIECE_ROTATIONS
 ]
 
+DROP_RATES = [24, 12, 8, 6, 4, 3, 2, 1]
+
 class Game:
     def __init__(self):
-        self.board = [[' ' for _ in range(WIDTH*2)] for _ in range(HEIGHT)]
-        self.starting_coordinates = (2, 5)
-        self.coordinates = self.starting_coordinates
+        self.board = [[' '] * WIDTH*2 for _ in range(HEIGHT)]
+        self.coordinates = SPAWN_COORDINATES
+        self.rotation_index = SPAWN_ROTATION_INDEX
         self.tick = 0
-        self.over = False
-        self.drop_rate = 24
-        self.starting_rotation = 0
-        self.rotation_index = 0
+        self.drop_rate_index = 0
+        self.lines_cleared = 0
         self.piece_index = 0
+        self.next_piece_index = self._get_next_piece_index()
         self.points = 0
+        self.over = False
+        self.add_piece()
+
+    def _get_next_piece_index(self) -> int:
+        return random.randint(0, 6)
     
     def increment(self):
-        if self.tick % self.drop_rate == 0:
+        self.tick = (self.tick+1) % TICKRATE
+        self.drop_rate_index = self.lines_cleared//2
+
+        if self.tick % DROP_RATES[self.drop_rate_index] == 0:
             self.move_piece('down')
-        
-        self.tick += 1
-        self.tick %= TICKRATE
 
     def move_piece(self, direction: str):
         row, col = self.coordinates
@@ -106,7 +114,7 @@ class Game:
                     self.board[row+row_mod][(col+col_mod)*2+1] = ']'
                 
                 if direction == 'down':
-                    self.remove_lines()
+                    self.clear_lines()
                     self.add_piece()
                 return
         
@@ -148,12 +156,18 @@ class Game:
         self.rotation_index = new_rotation
     
     def add_piece(self):
-        piece_index = random.randint(0, 6)
-
-        self.piece_index = piece_index
-        self.coordinates = self.starting_coordinates
+        self.piece_index = self.next_piece_index
+        self.next_piece_index = self._get_next_piece_index()
+        self.coordinates = SPAWN_COORDINATES
         row, col = self.coordinates
-        self.rotation_index = self.starting_rotation
+        self.rotation_index = SPAWN_ROTATION_INDEX
+
+        for row_mod, col_mod in PIECES[self.piece_index][self.rotation_index]:
+            if (row+row_mod >= HEIGHT
+                or col+col_mod < 0
+                or col+col_mod >= WIDTH
+                or self.board[row+row_mod][(col+col_mod)*2] != ' '):
+                self.over = True
 
         for row_mod, col_mod in PIECES[self.piece_index][self.rotation_index]:
             self.board[row+row_mod][(col+col_mod)*2] = '['
@@ -166,45 +180,62 @@ class Game:
                 self.over = True
             return
 
-        if key.name == 'left':
-            self.move_piece('left')
-        if key.name == 'right':
-            self.move_piece('right')
-        if key.name == 'down':
-            self.move_piece('down')
+        if key.name in ('left', 'right', 'down'):
+            self.move_piece(key.name)
         if key.name == 'up':
             self.rotate_piece()
     
     def render(self):
         for i in range(2, len(self.board)):
-            row = self.board[i]
             print('<', end='')
-            for cell in row:
-                print(cell, end='')
-            print('>')
-        print(' ' + 'v' * len(self.board[0]) + ' ' + 'points: ' + str(self.points))
+            for j in range(len(self.board[0])):
+                print(self.board[i][j], end='')
+            print('>', end='')
 
-    def remove_lines(self):
-        points = 10
+            if i in (8, 14):
+                print('  ' + '#'*14, end='')
+            if i == 9:
+                print('  ' + '#', end='')
+                print(' '*4 + 'NEXT' + ' '*4, end='')
+                print('#', end='')
+            if i in range(10, 14):
+                print('  ' + '#', end='')
+                row, col = 11, 3
+                for k in range(6):
+                    if any(row+row_mod == i and col+col_mod == k
+                           for row_mod, col_mod in PIECES[self.next_piece_index][SPAWN_ROTATION_INDEX]):
+                        print('[]', end='')
+                    else:
+                        print('  ', end='')
+                print('#', end='')
+
+            print()
+        print(' ' + 'v' * len(self.board[0]) + ' '*3 + 'points: ' + str(self.points) + ' lines cleared: ' + str(self.lines_cleared))
+
+    def clear_lines(self):
+        points = 0
         for row in range(HEIGHT):
             if ' ' not in self.board[row]:
-                points *= 2
                 self.board = [[' '] * WIDTH*2] + self.board[:row] + self.board[row+1:]
+                points *= 3
+                points += 10
+                self.lines_cleared += 1
         self.points += points
 
 def main():
     game = Game()
-    game.add_piece()
 
-    while True:
-        with keyboard.Listener(game.on_press) as listener:
-            listener.join(1/TICKRATE)
-        
+    listener = keyboard.Listener(on_press=game.on_press)
+    listener.start()
+
+    while not game.over:
+        listener.join(1/TICKRATE)
+
         game.increment()
         os.system('clear')
         game.render()
-
-        if game.over:
-            break
+    
+    print('GAME OVER')
+    listener.stop()
 
 main()
