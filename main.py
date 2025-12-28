@@ -94,10 +94,10 @@ class Game:
             'x': lambda: self.__rotate_piece(Rotation.CLOCKWISE),
             'z': lambda: self.__rotate_piece(Rotation.COUNTER_CLOCKWISE),
             'q': lambda: setattr(self, "over", True),
-            'left':  lambda: self.__move_piece(Direction.LEFT),
+            'left': lambda: self.__move_piece(Direction.LEFT),
             'right': lambda: self.__move_piece(Direction.RIGHT),
-            'down':  lambda: self.__move_piece(Direction.DOWN),
-            'up':    lambda: self.__rotate_piece(Rotation.CLOCKWISE),
+            'down': lambda: self.__move_piece(Direction.DOWN),
+            'up': lambda: self.__rotate_piece(Rotation.CLOCKWISE),
         }
     
     def increment(self):
@@ -120,10 +120,10 @@ class Game:
     def __add_piece(self, coordinates: tuple[int, int] = None, rotation_index: int = None):
         if coordinates is None: coordinates = self.__coordinates
         if rotation_index is None: rotation_index = self.__rotation_index
-        self.__add_or_remove_piece('add', coordinates, rotation_index)
+        self.__add_or_remove_piece(Operation.ADD, coordinates, rotation_index)
     
     def __remove_piece(self):
-        self.__add_or_remove_piece('remove', self.__coordinates, self.__rotation_index)
+        self.__add_or_remove_piece(Operation.REMOVE, self.__coordinates, self.__rotation_index)
     
     def __add_or_remove_piece(self, operation: Operation, coordinates: tuple[int, int], rotation_index: int):
         for piece_coordinates in PIECES[self.__piece_index][rotation_index]:
