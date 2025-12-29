@@ -2,6 +2,7 @@ from datetime import datetime
 from enum import Enum, auto
 import os
 import random
+import sys
 from time import sleep
 from pynput import keyboard
 
@@ -234,6 +235,13 @@ def main():
             os.system('cls')
         else:
             os.system('clear')
+        
+
+        original_stdin = sys.stdin
+
+        # Disable input
+        if sys.stdin.isatty():
+            sys.stdin = open(os.devnull)
 
         while not game.over:
             before = datetime.now().timestamp()
@@ -246,6 +254,8 @@ def main():
         
         listener.stop()
         print('GAME OVER')
+
+        sys.stdin = original_stdin
         
         if input('Play again? (*/n):') == 'n':
             break
