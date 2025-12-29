@@ -126,8 +126,8 @@ class Game:
         self.__add_or_remove_piece('remove', self.__coordinates, self.__rotation_index)
     
     def __add_or_remove_piece(self, operation: Operation, coordinates: tuple[int, int], rotation_index: int):
-        for piece_coordinates in PIECES[self.__piece_index][rotation_index]:
-            row, col = self.__add_coordinates(coordinates, piece_coordinates)
+        for offsets in PIECES[self.__piece_index][rotation_index]:
+            row, col = self.__add_coordinates(coordinates, offsets)
             self.__board[row][(col)*2] = '[' if operation == Operation.ADD else ' '
             self.__board[row][(col)*2+1] = ']' if operation == Operation.ADD else ' '
     
@@ -135,8 +135,8 @@ class Game:
         if coordinates is None: coordinates = self.__coordinates
         if rotation_index is None: rotation_index = self.__rotation_index
 
-        for piece_coordinates in PIECES[self.__piece_index][rotation_index]:
-            row, col = self.__add_coordinates(coordinates, piece_coordinates)
+        for offsets in PIECES[self.__piece_index][rotation_index]:
+            row, col = self.__add_coordinates(coordinates, offsets)
 
             if row >= HEIGHT or col < 0 or col >= WIDTH or self.__board[row][(col)*2] != ' ':
                 return False
