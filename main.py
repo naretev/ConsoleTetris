@@ -1,10 +1,9 @@
+from collections import deque
+import curses
 from datetime import datetime
 from enum import Enum, auto
-import os
 import random
-import sys
-from time import sleep
-from pynput import keyboard
+from time import monotonic, sleep
 
 class Direction(Enum):
     LEFT = (0, -1)
@@ -21,7 +20,7 @@ class Operation(Enum):
 
 TICKRATE = 60
 WIDTH = 10
-HEIGHT = 22
+HEIGHT = 20
 SPAWN_COORDINATES = (2, 5)
 SPAWN_ROTATION_INDEX = 0
 DROP_RATES = [60, 30, 20, 15, 12, 10, 6, 5, 4, 3, 2, 1]
@@ -80,40 +79,37 @@ PIECES = [
 class Game:
     def __init__(self, start_drop_rate):
         self.over = False
-        self.__board = [[' '] * WIDTH*2 for _ in range(HEIGHT)]
+        self.board = [[False] * WIDTH for _ in range(HEIGHT+2)]
+        self.next_piece_index = self.__get_next_piece_index()
+        self.lines_cleared = 0
+        self.points = 0
         self.__coordinates = SPAWN_COORDINATES
         self.__rotation_index = SPAWN_ROTATION_INDEX
         self.__start_drop_rate = start_drop_rate
         self.__tick = 0
         self.__drop_rate_index = 0
-        self.__lines_cleared = 0
         self.__piece_index = 0
-        self.__next_piece_index = self.__get_next_piece_index()
-        self.__points = 0
-        self.__spawn_next_piece()
         self.__on_press_actions = {
-            'x': lambda: self.__rotate_piece(Rotation.CLOCKWISE),
-            'z': lambda: self.__rotate_piece(Rotation.COUNTER_CLOCKWISE),
-            'q': lambda: setattr(self, "over", True),
-            'left': lambda: self.__move_piece(Direction.LEFT),
-            'right': lambda: self.__move_piece(Direction.RIGHT),
-            'down': lambda: self.__move_piece(Direction.DOWN),
-            'up': lambda: self.__rotate_piece(Rotation.CLOCKWISE),
+            ord('x'): lambda: self.__rotate_piece(Rotation.CLOCKWISE),
+            ord('z'): lambda: self.__rotate_piece(Rotation.COUNTER_CLOCKWISE),
+            ord('q'): lambda: setattr(self, "over", True),
+            curses.KEY_LEFT: lambda: self.__move_piece(Direction.LEFT),
+            curses.KEY_RIGHT: lambda: self.__move_piece(Direction.RIGHT),
+            curses.KEY_DOWN: lambda: self.__move_piece(Direction.DOWN),
+            curses.KEY_UP: lambda: self.__rotate_piece(Rotation.CLOCKWISE),
         }
+        self.__spawn_next_piece()
     
     def increment(self):
         self.__tick = (self.__tick+1) % TICKRATE
-        self.__drop_rate_index = max(self.__start_drop_rate, self.__lines_cleared//10)
+        self.__drop_rate_index = max(self.__start_drop_rate, self.lines_cleared//10)
 
         if self.__tick % DROP_RATES[self.__drop_rate_index] == 0:
             self.__move_piece(Direction.DOWN)
-        
-        self.__render()
 
-    def on_press(self, key: keyboard.Key | keyboard.KeyCode):
-        key_press = key.char if isinstance(key, keyboard.KeyCode) else key.name
-        if key_press in self.__on_press_actions:
-            self.__on_press_actions[key_press]()
+    def on_press(self, key: int):
+        if key in self.__on_press_actions:
+            self.__on_press_actions[key]()
 
     def __get_next_piece_index(self) -> int:
         return random.randint(0, 6)
@@ -129,8 +125,7 @@ class Game:
     def __add_or_remove_piece(self, operation: Operation, coordinates: tuple[int, int], rotation_index: int):
         for offsets in PIECES[self.__piece_index][rotation_index]:
             row, col = self.__add_coordinates(coordinates, offsets)
-            self.__board[row][(col)*2] = '[' if operation == Operation.ADD else ' '
-            self.__board[row][(col)*2+1] = ']' if operation == Operation.ADD else ' '
+            self.board[row][col] = operation == Operation.ADD
     
     def __piece_fits(self, coordinates: tuple[int, int] = None, rotation_index: int = None) -> bool:
         if coordinates is None: coordinates = self.__coordinates
@@ -139,7 +134,7 @@ class Game:
         for offsets in PIECES[self.__piece_index][rotation_index]:
             row, col = self.__add_coordinates(coordinates, offsets)
 
-            if row >= HEIGHT or col < 0 or col >= WIDTH or self.__board[row][(col)*2] != ' ':
+            if row >= HEIGHT+2 or col < 0 or col >= WIDTH or self.board[row][col]:
                 return False
 
         return True
@@ -173,8 +168,8 @@ class Game:
             self.__add_piece()
     
     def __spawn_next_piece(self):
-        self.__piece_index = self.__next_piece_index
-        self.__next_piece_index = self.__get_next_piece_index()
+        self.__piece_index = self.next_piece_index
+        self.next_piece_index = self.__get_next_piece_index()
         self.__coordinates = SPAWN_COORDINATES
         self.__rotation_index = SPAWN_ROTATION_INDEX
 
@@ -183,81 +178,95 @@ class Game:
 
         self.__add_piece()
     
-    def __render(self):
-        print("\033[H", end="")
-        for i in range(2, len(self.__board)):
-            print('<', end='')
-            for j in range(len(self.__board[0])):
-                print(self.__board[i][j], end='')
-            print('>', end='')
-
-            if i in (8, 14):
-                print('  ' + '#'*14, end='')
-            if i == 9:
-                print('  ' + '#', end='')
-                print(' '*4 + 'NEXT' + ' '*4, end='')
-                print('#', end='')
-            if i in range(10, 14):
-                print('  ' + '#', end='')
-                row, col = 11, 3
-                for k in range(6):
-                    if any(row+row_mod == i and col+col_mod == k
-                           for row_mod, col_mod in PIECES[self.__next_piece_index][SPAWN_ROTATION_INDEX]):
-                        print('[]', end='')
-                    else:
-                        print('  ', end='')
-                print('#', end='')
-
-            print()
-        print(' ' + 'v'*WIDTH*2 + ' '*3 + 'points: ' + str(self.__points) + ' lines cleared: ' + str(self.__lines_cleared))
-    
     def __clear_lines(self):
         lines_cleared = 0
-        for row in range(HEIGHT):
-            if ' ' not in self.__board[row]:
-                self.__board = [[' '] * WIDTH*2] + self.__board[:row] + self.__board[row+1:]
+        for row in range(HEIGHT+2):
+            if all(self.board[row]):
+                self.board = [[False] * WIDTH] + self.board[:row] + self.board[row+1:]
                 lines_cleared += 1
-        self.__points += SCORE_PER_LINE_CLEARED[lines_cleared]
-        self.__lines_cleared += lines_cleared
+        self.points += SCORE_PER_LINE_CLEARED[lines_cleared]
+        self.lines_cleared += lines_cleared
 
-def main():
+def render_board(win: curses.window, board: list[list[bool]]):
+    for y, row in enumerate(board[2:]):
+        for x, val in enumerate(row):
+            if val:
+                win.addstr(y, x*2, '[]', 2)
+            else:
+                win.addstr(y, x*2, '  ', 2)
+    
+    win.refresh()
+
+def render_preview(win: curses.window, next_piece_index: int):
+    row = 4
+    col = 3
+    for rowOffset, colOffset in PIECES[next_piece_index][0]:
+        win.addnstr(row+rowOffset, (col+colOffset)*2, '[]', 2)
+    win.refresh()
+
+    for rowOffset, colOffset in PIECES[next_piece_index][0]:
+        win.addnstr(row+rowOffset, (col+colOffset)*2, '  ', 2)
+
+
+def poll_input(stdscr: curses.window, queue: deque):
     while True:
-        start_drop_rate = -1
-        while start_drop_rate not in range(12):
-            start_drop_rate = int(input('Enter starting difficulty (1-12): '))-1
-
-        game = Game(start_drop_rate)
-
-        listener = keyboard.Listener(on_press=game.on_press)
-        listener.start()
-
-        if os.name == 'nt':
-            os.system('cls')
-        else:
-            os.system('clear')
-        
-
-        original_stdin = sys.stdin
-
-        # Disable input
-        if sys.stdin.isatty():
-            sys.stdin = open(os.devnull)
-
-        while not game.over:
-            before = datetime.now().timestamp()
-
-            game.increment()
-
-            after = datetime.now().timestamp()
-            time_elapsed = after-before
-            sleep(max((1/TICKRATE)-time_elapsed, 0))
-        
-        listener.stop()
-        print('GAME OVER')
-
-        sys.stdin = original_stdin
-        
-        if input('Play again? (*/n):') == 'n':
+        key = stdscr.getch()
+        if key == -1:
             break
+        queue.append(key)
 
-main()
+def main(stdscr: curses.window, game: Game):
+    stdscr.nodelay(True)
+
+    stdscr.bkgd(1)
+    stdscr.vline(0, 20, '<', HEIGHT)
+    stdscr.refresh()
+
+    stats_win = curses.newwin(16, 13, 0, 0)
+    
+    stats_win.border(*'#'*8)
+    stats_win.addnstr(2, 4, 'STATS', 5)
+    stats_win.refresh()
+
+    preview_win = curses.newwin(8, 12, 4, 50)
+    
+    preview_win.border(*'#'*8)
+    preview_win.addnstr(2, 4, 'NEXT', 4)
+    preview_win.refresh()
+
+    board_win = curses.newwin(HEIGHT+1, WIDTH*2+1, 0, 21)
+    board_win.vline(0, WIDTH*2, '>', HEIGHT)
+    board_win.hline(HEIGHT, 0, 'v', WIDTH*2)
+
+    input_queue = deque()
+
+    while not game.over:
+        before = monotonic()
+
+        poll_input(stdscr, input_queue)
+
+        while input_queue.__len__() > 0:
+            game.on_press(input_queue.popleft())
+
+        game.increment()
+        render_preview(preview_win, game.next_piece_index)
+        render_board(board_win, game.board)
+
+        after = monotonic()
+        time_elapsed = after-before
+        sleep(max((1/TICKRATE)-time_elapsed, 0))
+
+while True:
+    start_drop_rate = -1
+    while start_drop_rate not in range(12):
+        start_drop_rate = int(input('Enter starting difficulty (1-12): '))-1
+
+    game = Game(start_drop_rate)
+
+    curses.wrapper(lambda stdscr: main(stdscr, game))
+    
+    print('GAME OVER')
+    print('Score: ' + str(game.points) + ' Lines cleared: ' + str(game.lines_cleared))
+    
+    if input('Play again? (*/n):') == 'n':
+        break
