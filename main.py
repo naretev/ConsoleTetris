@@ -1,6 +1,5 @@
 from collections import deque
 import curses
-from datetime import datetime
 from enum import Enum, auto
 import random
 from time import monotonic, sleep
@@ -83,6 +82,7 @@ class Game:
         self.next_piece_index = self.__get_next_piece_index()
         self.lines_cleared = 0
         self.points = 0
+        self.stats = [0] * len(PIECES)
         self.__coordinates = SPAWN_COORDINATES
         self.__rotation_index = SPAWN_ROTATION_INDEX
         self.__start_drop_rate = start_drop_rate
@@ -170,6 +170,8 @@ class Game:
     def __spawn_next_piece(self):
         self.__piece_index = self.next_piece_index
         self.next_piece_index = self.__get_next_piece_index()
+        self.stats[self.__piece_index] += 1
+
         self.__coordinates = SPAWN_COORDINATES
         self.__rotation_index = SPAWN_ROTATION_INDEX
 
@@ -198,15 +200,34 @@ def render_board(win: curses.window, board: list[list[bool]]):
     win.refresh()
 
 def render_preview(win: curses.window, next_piece_index: int):
-    row = 4
+    win.clear()
+    win.border(*'#'*8)
+    win.addnstr(1, 4, 'NEXT', 4)
+
+    row = 3
     col = 3
     for rowOffset, colOffset in PIECES[next_piece_index][0]:
         win.addnstr(row+rowOffset, (col+colOffset)*2, '[]', 2)
     win.refresh()
 
-    for rowOffset, colOffset in PIECES[next_piece_index][0]:
-        win.addnstr(row+rowOffset, (col+colOffset)*2, '  ', 2)
+def render_stats(win: curses.window, stats: list[int]):
+    row = 3
+    col = 3
 
+    for piece_index, num in enumerate(stats):
+        win.addnstr(row+piece_index*3, (col+3)*2, str(num), 3)
+        for rowOffset, colOffset in PIECES[piece_index][0]:
+            win.addstr(row+rowOffset+piece_index*3, (col+colOffset)*2, '[]', 2)
+
+    win.refresh()
+
+def render_score(win: curses.window, score: int):
+    row = 3
+    col = 3
+
+    win.addnstr(row, col, str(score), 6)
+
+    win.refresh()
 
 def poll_input(stdscr: curses.window, queue: deque):
     while True:
@@ -219,24 +240,29 @@ def main(stdscr: curses.window, game: Game):
     stdscr.nodelay(True)
 
     stdscr.bkgd(1)
-    stdscr.vline(0, 20, '<', HEIGHT)
+    stdscr.vline(0, 22, '<', HEIGHT)
     stdscr.refresh()
 
-    stats_win = curses.newwin(16, 13, 0, 0)
+    stats_win = curses.newwin(24, 18, 0, 0)
     
+    stats_win.bkgd(1)
     stats_win.border(*'#'*8)
-    stats_win.addnstr(2, 4, 'STATS', 5)
-    stats_win.refresh()
+    stats_win.addnstr(1, 4, 'STATISTICS', 10)
 
-    preview_win = curses.newwin(8, 12, 4, 50)
-    
-    preview_win.border(*'#'*8)
-    preview_win.addnstr(2, 4, 'NEXT', 4)
-    preview_win.refresh()
+    preview_win = curses.newwin(7, 12, 4, 48)
+    preview_win.bkgd(1)
 
-    board_win = curses.newwin(HEIGHT+1, WIDTH*2+1, 0, 21)
+    board_win = curses.newwin(HEIGHT+1, WIDTH*2+1, 0, 23)
+
+    board_win.bkgd(1)
     board_win.vline(0, WIDTH*2, '>', HEIGHT)
     board_win.hline(HEIGHT, 0, 'v', WIDTH*2)
+
+    score_win = curses.newwin(6, 12, 14, 48)
+    
+    score_win.bkgd(1)
+    score_win.border(*'#'*8)
+    score_win.addnstr(1, 4, 'SCORE', 5)
 
     input_queue = deque()
 
@@ -245,11 +271,13 @@ def main(stdscr: curses.window, game: Game):
 
         poll_input(stdscr, input_queue)
 
-        while input_queue.__len__() > 0:
+        while len(input_queue) > 0:
             game.on_press(input_queue.popleft())
 
         game.increment()
         render_preview(preview_win, game.next_piece_index)
+        render_score(score_win, game.points)
+        render_stats(stats_win, game.stats)
         render_board(board_win, game.board)
 
         after = monotonic()
